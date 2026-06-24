@@ -59,32 +59,52 @@ export function detectMapping(headers) {
   return mapping;
 }
 
+// ── Detect binary / encrypted files before parsing ─────────
+function looksBinary(text) {
+  if (!text) return false;
+  // Known encryption/binary magic markers
+  const head = text.slice(0, 64);
+  if (/MARPCRYPT|MSMAMA|AES\/CBC|PK\x03\x04|%PDF|\x00/.test(head)) return true;
+  // High ratio of non-printable characters = not a text CSV
+  let nonPrintable = 0;
+  const sample = text.slice(0, 2000);
+  for (let i = 0; i < sample.length; i++) {
+    const c = sample.charCodeAt(i);
+    if (c === 0 || (c < 32 && c !== 9 && c !== 10 && c !== 13) || c === 65533) nonPrintable++;
+  }
+  return sample.length > 0 && (nonPrintable / sample.length) > 0.1;
+}
+
 // ── Parse CSV file ──────────────────────────────────────────
 export function parseCSV(file) {
   return new Promise((resolve, reject) => {
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      encoding: 'UTF-8',
-      complete: (results) => {
-        if (results.errors.length > 0) {
-          console.warn('CSV parse warnings:', results.errors);
-        }
-        
-        const headers = results.meta.fields || [];
-        const mapping = detectMapping(headers);
-        const rows = results.data;
-        
-        resolve({
-          headers,
-          mapping,
-          rows,
-          rowCount: rows.length,
-          preview: rows.slice(0, 3),
-        });
-      },
-      error: (error) => reject(error),
-    });
+    // First read a chunk as text to check it's really a CSV
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = reader.result;
+      if (looksBinary(text)) {
+        reject(new Error("This file looks encrypted or isn't a plain CSV. Export it again as 'CSV (Comma delimited)' without password protection, then re-upload. A real CSV opens as readable text in Notepad/TextEdit."));
+        return;
+      }
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        encoding: 'UTF-8',
+        complete: (results) => {
+          const headers = (results.meta.fields || []).filter(h => h && h.trim());
+          if (headers.length === 0) {
+            reject(new Error("No columns found. Make sure the first row contains column headers and the file is a valid CSV."));
+            return;
+          }
+          const mapping = detectMapping(headers);
+          const rows = results.data;
+          resolve({ headers, mapping, rows, rowCount: rows.length, preview: rows.slice(0, 3) });
+        },
+        error: (error) => reject(error),
+      });
+    };
+    reader.onerror = () => reject(new Error("Could not read the file."));
+    reader.readAsText(file.slice(0, 4096)); // sample first 4KB for the binary check
   });
 }
 
