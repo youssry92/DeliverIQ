@@ -1154,7 +1154,9 @@ function UploadPage({ onData, onDemo }) {
   const [result, setR] = useState(null);
   const [err, setE] = useState(null);
   const [prog, setProg] = useState(null); // { pct, msg }
+  const [hoverCol, setHoverCol] = useState(null); // sync highlight image↔grid
   const ref = useRef(null);
+  const FIELDS = ["project_ref", "project_name", "client", "milestone_name", "milestone_no", "milestone_value", "milestone_status", "expected_date", "actual_date", "pm", "region", "health", "overdue", "csat", "consultant"];
 
   const handle = async (f) => {
     if (!f) return;
@@ -1217,18 +1219,79 @@ function UploadPage({ onData, onDemo }) {
           </div>
         </div>
       ) : (
-        <div style={{ width: "100%", maxWidth: 720 }}>
+        <div style={{ width: "100%", maxWidth: result.pageImage ? 1000 : 720 }}>
           <div style={{ background: C.sf, borderRadius: 16, padding: 24, border: `1px solid ${C.bd}` }}>
-            <div style={{ fontSize: 18, fontWeight: 700, color: C.tx, marginBottom: 4 }}>Review Column Mapping</div>
-            <div style={{ fontSize: 12, color: C.sb, marginBottom: 16 }}>{result.rowCount} rows · {result.headers.length} columns detected{result.method === "ocr" ? " via OCR (scanned PDF — please double-check the values)" : result.method === "text" ? " from PDF text" : ""}. Adjust any mapping below.</div>
-            <div style={{ maxHeight: 360, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
-              <table style={{ width: "100%", borderCollapse: "collapse" }}>
-                <thead><tr style={{ borderBottom: `1px solid ${C.bd}`, position: "sticky", top: 0, background: C.cd }}>{["CSV Column", "→", "Maps To", "Sample", "Conf"].map((h, i) => <th key={i} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: C.dm }}>{h}</th>)}</tr></thead>
-                <tbody>{result.headers.map((h, i) => { const m = result.mapping[h]; return (<tr key={i} style={{ borderBottom: `1px solid ${C.bd}06` }}><td style={{ padding: "8px 12px" }}><span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 600, color: C.tx, background: C.bg, padding: "2px 6px", borderRadius: 4 }}>{h}</span></td><td style={{ padding: "8px 12px", color: C.dm }}>→</td><td style={{ padding: "8px 12px" }}><select value={m.field} onChange={e => { const nm = { ...result.mapping }; nm[h] = { ...m, field: e.target.value, confidence: 100 }; setR({ ...result, mapping: nm }); }} style={{ background: C.bg, border: `1px solid ${C.bd}`, borderRadius: 6, padding: "4px 8px", color: C.tx, fontSize: 10, fontWeight: 600 }}><option value="unmapped">— Skip —</option>{["project_ref", "project_name", "client", "milestone_name", "milestone_no", "milestone_value", "milestone_status", "expected_date", "actual_date", "pm", "region", "health", "overdue", "csat", "consultant"].map(f => <option key={f} value={f}>{f.replace(/_/g, " ")}</option>)}</select></td><td style={{ padding: "8px 12px", fontSize: 9, color: C.sb, fontFamily: "monospace", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(result.preview[0]?.[h] ?? "—")}</td><td style={{ padding: "8px 12px" }}><span style={{ fontSize: 9, fontWeight: 700, color: m.confidence >= 85 ? C.gn : m.confidence >= 60 ? C.am : C.rd, background: (m.confidence >= 85 ? C.gn : m.confidence >= 60 ? C.am : C.rd) + "18", padding: "2px 6px", borderRadius: 4 }}>{m.confidence}%</span></td></tr>); })}</tbody>
-              </table>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 16 }}>
-              <button onClick={() => setR(null)} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${C.bd}`, background: "transparent", color: C.sb, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>← Back</button>
+            <div style={{ fontSize: 18, fontWeight: 700, color: C.tx, marginBottom: 4 }}>{result.pageImage ? "Review & Map Columns" : "Review Column Mapping"}</div>
+            <div style={{ fontSize: 12, color: C.sb, marginBottom: 16 }}>{result.rowCount} rows · {result.headers.length} columns detected{result.method === "ocr" ? " via OCR (scanned PDF — please double-check the values)" : result.method === "text" ? " from PDF text" : ""}. {result.pageImage ? "Hover a column to see it on the page." : "Adjust any mapping below."}</div>
+
+            {result.pageImage ? (
+              <div>
+                {/* Source document with detected column bands overlaid */}
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: C.dm, marginBottom: 8 }}>Source Document · detected columns</div>
+                <div style={{ maxHeight: 300, overflow: "auto", borderRadius: 10, border: `1px solid ${C.bd}`, background: "#fff", marginBottom: 20 }}>
+                  <div style={{ position: "relative", width: "100%", lineHeight: 0 }}>
+                    <img src={result.pageImage.dataUrl} alt="PDF page" style={{ width: "100%", display: "block" }} />
+                    {result.columnBands.map((b, i) => b && (
+                      <div key={i} onMouseEnter={() => setHoverCol(i)} onMouseLeave={() => setHoverCol(null)}
+                        style={{ position: "absolute", top: 0, bottom: 0, left: `${b.x0 * 100}%`, width: `${(b.x1 - b.x0) * 100}%`, cursor: "pointer",
+                          background: hoverCol === i ? `${C.ac}26` : "transparent",
+                          borderLeft: `1.5px dashed ${hoverCol === i ? C.ac : C.ac + "55"}`,
+                          borderRight: i === result.columnBands.length - 1 ? `1.5px dashed ${hoverCol === i ? C.ac : C.ac + "55"}` : "none",
+                          transition: "background .12s" }}>
+                        <div style={{ position: "absolute", top: 4, left: "50%", transform: "translateX(-50%)", fontSize: 9, fontWeight: 800, color: "#fff", background: hoverCol === i ? C.ac : "rgba(59,130,246,.7)", borderRadius: 4, padding: "1px 6px", whiteSpace: "nowrap" }}>{i + 1}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Extracted data as a spreadsheet-style grid */}
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: C.dm, marginBottom: 8 }}>Extracted Data · map each column</div>
+                <div style={{ overflowX: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
+                  <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
+                    <thead>
+                      <tr>{result.headers.map((h, i) => { const m = result.mapping[h]; const cc = m.confidence >= 85 ? C.gn : m.confidence >= 60 ? C.am : C.rd; const mapped = m.field !== "unmapped"; return (
+                        <th key={i} onMouseEnter={() => setHoverCol(i)} onMouseLeave={() => setHoverCol(null)}
+                          style={{ padding: "10px 10px 12px", textAlign: "left", verticalAlign: "top", borderBottom: `2px solid ${C.bd}`, borderRight: `1px solid ${C.bd}`, background: hoverCol === i ? `${C.ac}1A` : C.cd, minWidth: 130 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                            <span style={{ fontSize: 9, fontWeight: 800, color: "#fff", background: hoverCol === i ? C.ac : C.dm, borderRadius: 3, padding: "0px 5px" }}>{i + 1}</span>
+                            <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 600, color: C.sb, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 110 }}>{h}</span>
+                          </div>
+                          <select value={m.field} onChange={e => { const nm = { ...result.mapping }; nm[h] = { ...m, field: e.target.value, confidence: 100 }; setR({ ...result, mapping: nm }); }}
+                            style={{ width: "100%", background: mapped ? `${C.ac}14` : C.bg, border: `1px solid ${mapped ? C.ac + "55" : C.bd}`, borderRadius: 6, padding: "5px 6px", color: mapped ? C.tx : C.sb, fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                            <option value="unmapped">— Skip —</option>
+                            {FIELDS.map(f => <option key={f} value={f}>{f.replace(/_/g, " ")}</option>)}
+                          </select>
+                          <div style={{ marginTop: 5, fontSize: 8, fontWeight: 700, color: cc }}>{m.confidence >= 85 ? "● high" : m.confidence >= 60 ? "● medium" : "● low"} match</div>
+                        </th>
+                      ); })}</tr>
+                    </thead>
+                    <tbody>
+                      {result.rows.slice(0, 8).map((row, ri) => (
+                        <tr key={ri} style={{ background: ri % 2 ? "transparent" : `${C.bd}10` }}>
+                          {result.headers.map((h, ci) => (
+                            <td key={ci} onMouseEnter={() => setHoverCol(ci)} onMouseLeave={() => setHoverCol(null)}
+                              style={{ padding: "7px 10px", borderRight: `1px solid ${C.bd}`, borderBottom: `1px solid ${C.bd}08`, fontSize: 10, color: C.tx, whiteSpace: "nowrap", maxWidth: 160, overflow: "hidden", textOverflow: "ellipsis", background: hoverCol === ci ? `${C.ac}12` : "transparent" }}>
+                              {String(row[h] ?? "").trim() || <span style={{ color: C.dm }}>—</span>}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {result.rowCount > 8 && <div style={{ fontSize: 10, color: C.dm, marginTop: 8, textAlign: "center" }}>+ {result.rowCount - 8} more rows</div>}
+              </div>
+            ) : (
+              <div style={{ maxHeight: 360, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
+                <table style={{ width: "100%", borderCollapse: "collapse" }}>
+                  <thead><tr style={{ borderBottom: `1px solid ${C.bd}`, position: "sticky", top: 0, background: C.cd }}>{["Column", "→", "Maps To", "Sample", "Conf"].map((h, i) => <th key={i} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: C.dm }}>{h}</th>)}</tr></thead>
+                  <tbody>{result.headers.map((h, i) => { const m = result.mapping[h]; return (<tr key={i} style={{ borderBottom: `1px solid ${C.bd}06` }}><td style={{ padding: "8px 12px" }}><span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 600, color: C.tx, background: C.bg, padding: "2px 6px", borderRadius: 4 }}>{h}</span></td><td style={{ padding: "8px 12px", color: C.dm }}>→</td><td style={{ padding: "8px 12px" }}><select value={m.field} onChange={e => { const nm = { ...result.mapping }; nm[h] = { ...m, field: e.target.value, confidence: 100 }; setR({ ...result, mapping: nm }); }} style={{ background: C.bg, border: `1px solid ${C.bd}`, borderRadius: 6, padding: "4px 8px", color: C.tx, fontSize: 10, fontWeight: 600 }}><option value="unmapped">— Skip —</option>{FIELDS.map(f => <option key={f} value={f}>{f.replace(/_/g, " ")}</option>)}</select></td><td style={{ padding: "8px 12px", fontSize: 9, color: C.sb, fontFamily: "monospace", maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{String(result.preview[0]?.[h] ?? "—")}</td><td style={{ padding: "8px 12px" }}><span style={{ fontSize: 9, fontWeight: 700, color: m.confidence >= 85 ? C.gn : m.confidence >= 60 ? C.am : C.rd, background: (m.confidence >= 85 ? C.gn : m.confidence >= 60 ? C.am : C.rd) + "18", padding: "2px 6px", borderRadius: 4 }}>{m.confidence}%</span></td></tr>); })}</tbody>
+                </table>
+              </div>
+            )}
+
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 20 }}>
+              <button onClick={() => { setR(null); setHoverCol(null); }} style={{ padding: "10px 20px", borderRadius: 10, border: `1px solid ${C.bd}`, background: "transparent", color: C.sb, fontSize: 13, fontWeight: 600, cursor: "pointer" }}>← Back</button>
               <button onClick={confirm} style={{ padding: "10px 28px", borderRadius: 10, border: "none", background: G, color: "#fff", fontSize: 14, fontWeight: 700, cursor: "pointer" }}>✓ Build Dashboard</button>
             </div>
           </div>

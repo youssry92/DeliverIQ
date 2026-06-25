@@ -62,7 +62,7 @@ function itemsToGrid(items) {
   const colAnchors = cluster(rowCells.flatMap(cells => cells.map(c => c.x)), colTol);
 
   // Place each cell under its nearest column anchor
-  return rowCells.map(cells => {
+  const grid = rowCells.map(cells => {
     const out = Array(colAnchors.length).fill('');
     for (const c of cells) {
       let ci = 0, best = Infinity;
@@ -74,6 +74,7 @@ function itemsToGrid(items) {
     }
     return out.map(c => c.trim());
   });
+  return { grid, anchors: colAnchors };
 }
 
 // Pick the header row: first row where most cells are non-empty & non-numeric.
@@ -111,20 +112,52 @@ function gridToRecords(grid) {
 async function extractText(pdf, onProgress) {
   let allItems = [];
   let totalChars = 0;
+  let page1Width = 0, page1Items = [];
   for (let p = 1; p <= pdf.numPages; p++) {
     const page = await pdf.getPage(p);
     const content = await page.getTextContent();
     const vp = page.getViewport({ scale: 1 });
+    if (p === 1) page1Width = vp.width;
     for (const it of content.items) {
       const str = (it.str || '').trim();
       if (!str) continue;
       totalChars += str.length;
       // transform = [a,b,c,d,e,f]; e=x, f=y. Flip y to top-origin so rows sort naturally.
-      allItems.push({ str, x: it.transform[4], y: vp.height - it.transform[5], w: it.width || 0, h: it.height || Math.abs(it.transform[3]) || 8 });
+      const item = { str, x: it.transform[4], y: vp.height - it.transform[5], w: it.width || 0, h: it.height || Math.abs(it.transform[3]) || 8 };
+      allItems.push(item);
+      if (p === 1) page1Items.push(item);
     }
     onProgress?.(Math.round((p / pdf.numPages) * 100), `Reading page ${p}/${pdf.numPages}`);
   }
-  return { items: allItems, totalChars };
+  return { items: allItems, totalChars, page1Width, page1Items };
+}
+
+// Render a page to an image data URL (for the visual mapping preview).
+async function renderPagePreview(pdf, pageNo, maxW = 900) {
+  const page = await pdf.getPage(pageNo);
+  const base = page.getViewport({ scale: 1 });
+  const scale = Math.min(2.5, maxW / base.width);
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = viewport.width; canvas.height = viewport.height;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return { dataUrl: canvas.toDataURL('image/jpeg', 0.8), w: canvas.width, h: canvas.height };
+}
+
+// Convert column anchors + page width into column bands as fractions [0..1].
+// Each band is centered between adjacent anchors so it lines up over the page.
+function anchorsToBands(anchors, pageWidth) {
+  if (!anchors || !anchors.length || !pageWidth) return [];
+  const a = [...anchors].sort((x, y) => x - y);
+  const bands = [];
+  for (let i = 0; i < a.length; i++) {
+    const left = i === 0 ? 0 : (a[i - 1] + a[i]) / 2;
+    const right = i === a.length - 1 ? pageWidth : (a[i] + a[i + 1]) / 2;
+    bands.push({ x0: Math.max(0, left / pageWidth), x1: Math.min(1, right / pageWidth) });
+  }
+  return bands;
 }
 
 // Remove long horizontal/vertical lines (table gridlines) from a rendered page.
@@ -186,6 +219,7 @@ async function extractOCR(pdf, file, onProgress) {
   });
 
   const grids = [];
+  const page1 = { anchors: [], width: 0 };
   try {
     for (let p = 1; p <= pdf.numPages; p++) {
       const page = await pdf.getPage(p);
@@ -217,13 +251,17 @@ async function extractOCR(pdf, file, onProgress) {
         const bb = w.bbox || w.bbox0;
         if (t && bb) items.push({ str: t, x: bb.x0, y: bb.y0, w: bb.x1 - bb.x0, h: bb.y1 - bb.y0 });
       });
-      if (items.length) grids.push(...itemsToGrid(items));
+      if (items.length) {
+        const { grid, anchors } = itemsToGrid(items);
+        grids.push(...grid);
+        if (p === 1) { page1.anchors = anchors; page1.width = canvas.width; }
+      }
       onProgress?.(Math.round((p / pdf.numPages) * 100), `OCR page ${p}/${pdf.numPages} done`);
     }
   } finally {
     await worker.terminate();
   }
-  return grids;
+  return { grids, page1 };
 }
 
 // ── Main entry ──────────────────────────────────────────────
@@ -232,31 +270,50 @@ export async function parsePDF(file, onProgress) {
   const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
 
   onProgress?.(5, 'Opening PDF…');
-  const { items, totalChars } = await extractText(pdf, onProgress);
+  const { items, totalChars, page1Width, page1Items } = await extractText(pdf, onProgress);
 
   // Heuristic: ~enough embedded text means it's a real text PDF; otherwise OCR.
   const isTextBased = totalChars > 40 && items.length > 10;
 
-  let headers, rows, method;
+  let headers, rows, method, bands = [];
   if (isTextBased) {
     method = 'text';
-    const grid = itemsToGrid(items);
+    const { grid, anchors } = itemsToGrid(items);
     ({ headers, rows } = gridToRecords(grid));
+    // Column bands from page-1 text positions (in points)
+    const p1 = itemsToGrid(page1Items.length ? page1Items : items);
+    bands = anchorsToBands(p1.anchors, page1Width);
   }
 
   // If text path produced nothing usable, fall back to OCR.
   if (!isTextBased || !rows || rows.length === 0) {
     method = 'ocr';
     onProgress?.(10, 'No embedded text — running OCR…');
-    const grid = await extractOCR(pdf, file, onProgress);
-    ({ headers, rows } = gridToRecords(grid));
+    const { grids, page1 } = await extractOCR(pdf, file, onProgress);
+    ({ headers, rows } = gridToRecords(grids));
+    bands = anchorsToBands(page1.anchors, page1.width);
   }
 
   if (!headers || headers.length === 0 || rows.length === 0) {
     throw new Error("Couldn't extract a table from this PDF. If it's a scanned document, make sure the text is clear and upright. A CSV export usually works best.");
   }
 
+  // Render page 1 as an image for the visual mapping preview
+  onProgress?.(96, 'Preparing preview…');
+  let pageImage = null;
+  try { pageImage = await renderPagePreview(pdf, 1); } catch { /* preview is optional */ }
+
+  // Align bands to the number of detected columns (pad/trim defensively)
+  if (bands.length !== headers.length) {
+    if (bands.length > headers.length) bands = bands.slice(0, headers.length);
+    else while (bands.length < headers.length) bands.push(null);
+  }
+
   const mapping = detectMapping(headers);
   onProgress?.(100, 'Done');
-  return { headers, mapping, rows, rowCount: rows.length, preview: rows.slice(0, 3), method };
+  return {
+    headers, mapping, rows, rowCount: rows.length, preview: rows.slice(0, 3), method,
+    pageImage,            // { dataUrl, w, h } of page 1
+    columnBands: bands,   // [{x0,x1}] fractions of page width, per column
+  };
 }
