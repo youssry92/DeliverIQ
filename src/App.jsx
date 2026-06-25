@@ -1,12 +1,34 @@
 import { useState, useEffect, useRef } from "react";
 import { parseCSV, transformToProjects } from "./lib/csvParser";
-import { saveProjects, savePMs, loadAll, hasData, clearAll } from "./lib/store";
+import { saveProjects, savePMs, loadAll, hasData, clearAll, saveTheme, loadTheme } from "./lib/store";
 import { generateReport } from "./lib/reportGenerator";
 
 
 // ── TOKENS & DATA ───────────────────────────────────────────
-const C = { bg:"#080E1A",sf:"#0F1729",cd:"#131D35",bd:"#1E2A45",bh:"#2A3A5C",tx:"#E8ECF4",sb:"#7B8BA8",dm:"#4A5A78",ac:"#3B82F6",pp:"#8B5CF6",gn:"#10B981",am:"#F59E0B",rd:"#EF4444",pk:"#EC4899" };
-const G=`linear-gradient(135deg,${C.ac},${C.pp})`;
+let C = { bg:"#080E1A",sf:"#0F1729",cd:"#131D35",bd:"#1E2A45",bh:"#2A3A5C",tx:"#E8ECF4",sb:"#7B8BA8",dm:"#4A5A78",ac:"#3B82F6",pp:"#8B5CF6",gn:"#10B981",am:"#F59E0B",rd:"#EF4444",pk:"#EC4899" };
+let G=`linear-gradient(135deg,${C.ac},${C.pp})`;
+let BRAND = { name: "DeliverIQ", logo: null, tagline: "Delivery Intelligence", radius: 12 };
+// Apply a saved white-label theme onto the live dashboard tokens
+function applyTheme(t) {
+  if (!t) return;
+  const c = t.colors || t;
+  if (c.bg) C.bg = c.bg;
+  if (c.surface) { C.sf = c.surface; C.cd = c.surface; }
+  if (c.border) { C.bd = c.border; C.bh = c.border; }
+  if (c.text) C.tx = c.text;
+  if (c.muted) C.sb = c.muted;
+  if (c.dim) C.dm = c.dim;
+  if (c.primary) C.ac = c.primary;
+  if (c.secondary) C.pp = c.secondary;
+  if (c.success) C.gn = c.success;
+  if (c.warning) C.am = c.warning;
+  if (c.danger) C.rd = c.danger;
+  if (c.primary && c.secondary) G = `linear-gradient(135deg,${c.primary},${c.secondary})`;
+  if (t.orgName !== undefined) BRAND.name = t.orgName || "DeliverIQ";
+  if (t.logoUrl !== undefined) BRAND.logo = t.logoUrl;
+  if (t.tagline !== undefined) BRAND.tagline = t.tagline || "Delivery Intelligence";
+  if (t.radius !== undefined) BRAND.radius = t.radius;
+}
 const hc=h=>h>=70?C.gn:h>=40?C.am:C.rd;
 const sc=s=>s==="on-track"?C.gn:s==="at-risk"?C.am:C.rd;
 const fmt=n=>n>=1e6?`$${(n/1e6).toFixed(1)}M`:n>=1e3?`$${(n/1e3).toFixed(0)}K`:`$${n}`;
@@ -132,8 +154,8 @@ return(<div>
 </div></div>)}
 
 // ── PM PERFORMANCE ──────────────────────────────────────────
-function PMPerf({onSel}){const grads=["linear-gradient(135deg,#10B981,#059669)","linear-gradient(135deg,#3B82F6,#2563EB)","linear-gradient(135deg,#8B5CF6,#7C3AED)","linear-gradient(135deg,#F59E0B,#D97706)","linear-gradient(135deg,#EF4444,#DC2626)"];
-return(<div style={{display:"flex",flexDirection:"column",gap:8}}>{PMS.map((pm,i)=>{const lv=gLv(pm.xp);const pp=P.filter(p=>p.pm===pm.name);return(<div key={i} style={{background:i===0?`linear-gradient(135deg,${C.sf},${C.gn}08)`:C.sf,border:`1px solid ${i===0?C.gn+"30":C.bd}`,borderRadius:12,padding:"14px 18px"}}><div style={{display:"flex",alignItems:"center",gap:12}}><div style={{fontSize:20,width:28,textAlign:"center",flexShrink:0}}>{["🥇","🥈","🥉"][i]||<span style={{fontSize:13,color:C.dm,fontWeight:700}}>#{i+1}</span>}</div><div style={{width:40,height:40,borderRadius:20,background:grads[i],display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0,position:"relative"}}>{pm.ini}<div style={{position:"absolute",bottom:-3,right:-3,fontSize:10,background:C.sf,borderRadius:5,padding:"0 2px",border:`1px solid ${C.bd}`}}>{lv.i}</div></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:C.tx}}>{pm.name}</span><span style={{fontSize:9,color:C.dm}}>{pm.region}</span>{pm.streak>0&&<span style={{fontSize:8,fontWeight:700,color:C.am,background:`${C.am}12`,padding:"1px 5px",borderRadius:5}}>🔥{pm.streak}w</span>}<span style={{fontSize:8,fontWeight:600,color:lv.c}}>{lv.n}</span></div><div style={{marginTop:4,maxWidth:180}}><XPBar xp={pm.xp} compact/></div><div style={{display:"flex",gap:3,marginTop:4}}>{pp.map(proj=><button key={proj.id} onClick={()=>onSel(proj)} style={{padding:"1px 7px",borderRadius:4,border:`1px solid ${sc(proj.status)}30`,background:`${sc(proj.status)}10`,color:sc(proj.status),fontSize:8,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>{proj.name.length>14?proj.name.slice(0,14)+"…":proj.name}</button>)}</div></div><div style={{display:"flex",gap:5,marginRight:6}}><BadgeRow badges={pm.badges} small/></div><div style={{display:"flex",gap:14,flexShrink:0}}><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Health</div><Ring v={Math.round(pm.ah)} s={34} w={2.5}/></div><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Billing</div><div style={{fontSize:15,fontWeight:800,color:pm.br>=.7?C.gn:pm.br>=.4?C.am:C.rd}}>{Math.round(pm.br*100)}%</div></div><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Overdue</div><div style={{fontSize:15,fontWeight:800,color:pm.ov===0?C.gn:C.rd}}>{pm.ov===0?"✓":pm.ov}</div></div></div></div>{pm.ah<50&&<div style={{marginTop:8,marginLeft:80,padding:"5px 10px",background:`${C.rd}06`,border:`1px solid ${C.rd}15`,borderRadius:6,fontSize:10,color:"#F87171",borderLeft:`3px solid ${C.rd}`}}>⚡ Health below 50% — coaching recommended</div>}</div>)})}</div>)}
+function PMPerf({onSel}){const[expanded,setExpanded]=useState({});const grads=["linear-gradient(135deg,#10B981,#059669)","linear-gradient(135deg,#3B82F6,#2563EB)","linear-gradient(135deg,#8B5CF6,#7C3AED)","linear-gradient(135deg,#F59E0B,#D97706)","linear-gradient(135deg,#EF4444,#DC2626)"];
+return(<div style={{display:"flex",flexDirection:"column",gap:8}}>{PMS.map((pm,i)=>{const lv=gLv(pm.xp);const pp=P.filter(p=>p.pm===pm.name);return(<div key={i} style={{background:i===0?`linear-gradient(135deg,${C.sf},${C.gn}08)`:C.sf,border:`1px solid ${i===0?C.gn+"30":C.bd}`,borderRadius:12,padding:"14px 18px"}}><div style={{display:"flex",alignItems:"center",gap:12}}><div style={{fontSize:20,width:28,textAlign:"center",flexShrink:0}}>{["🥇","🥈","🥉"][i]||<span style={{fontSize:13,color:C.dm,fontWeight:700}}>#{i+1}</span>}</div><div style={{width:40,height:40,borderRadius:20,background:grads[i],display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:800,color:"#fff",flexShrink:0,position:"relative"}}>{pm.ini}<div style={{position:"absolute",bottom:-3,right:-3,fontSize:10,background:C.sf,borderRadius:5,padding:"0 2px",border:`1px solid ${C.bd}`}}>{lv.i}</div></div><div style={{flex:1,minWidth:0}}><div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap"}}><span style={{fontSize:13,fontWeight:700,color:C.tx}}>{pm.name}</span><span style={{fontSize:9,color:C.dm}}>{pm.region}</span>{pm.streak>0&&<span style={{fontSize:8,fontWeight:700,color:C.am,background:`${C.am}12`,padding:"1px 5px",borderRadius:5}}>🔥{pm.streak}w</span>}<span style={{fontSize:8,fontWeight:600,color:lv.c}}>{lv.n}</span></div><div style={{marginTop:4,maxWidth:180}}><XPBar xp={pm.xp} compact/></div><div style={{display:"flex",gap:3,marginTop:4,flexWrap:"wrap",alignItems:"center"}}>{(expanded[i]?pp:pp.slice(0,5)).map(proj=><button key={proj.id} onClick={(e)=>{e.stopPropagation();onSel(proj)}} style={{padding:"1px 7px",borderRadius:4,border:`1px solid ${sc(proj.status)}30`,background:`${sc(proj.status)}10`,color:sc(proj.status),fontSize:8,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap",maxWidth:120,overflow:"hidden",textOverflow:"ellipsis"}}>{proj.name.length>16?proj.name.slice(0,16)+"…":proj.name}</button>)}{pp.length>5&&<button onClick={(e)=>{e.stopPropagation();setExpanded(s=>({...s,[i]:!s[i]}))}} style={{padding:"1px 8px",borderRadius:4,border:`1px solid ${C.ac}40`,background:`${C.ac}15`,color:C.ac,fontSize:8,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>{expanded[i]?"Show less":`+${pp.length-5} more`}</button>}</div></div><div style={{display:"flex",gap:5,marginRight:6}}><BadgeRow badges={pm.badges} small/></div><div style={{display:"flex",gap:14,flexShrink:0}}><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Health</div><Ring v={Math.round(pm.ah)} s={34} w={2.5}/></div><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Billing</div><div style={{fontSize:15,fontWeight:800,color:pm.br>=.7?C.gn:pm.br>=.4?C.am:C.rd}}>{Math.round(pm.br*100)}%</div></div><div style={{textAlign:"center"}}><div style={{fontSize:7,fontWeight:600,letterSpacing:.5,textTransform:"uppercase",color:C.dm,marginBottom:2}}>Overdue</div><div style={{fontSize:15,fontWeight:800,color:pm.ov===0?C.gn:C.rd}}>{pm.ov===0?"✓":pm.ov}</div></div></div></div>{pm.ah<50&&<div style={{marginTop:8,marginLeft:80,padding:"5px 10px",background:`${C.rd}06`,border:`1px solid ${C.rd}15`,borderRadius:6,fontSize:10,color:"#F87171",borderLeft:`3px solid ${C.rd}`}}>⚡ Health below 50% — coaching recommended</div>}</div>)})}</div>)}
 
 // ── IC PERFORMANCE ──────────────────────────────────────────
 function ICPerf(){const[exp,sE]=useState(null);const grads=["linear-gradient(135deg,#C084FC,#8B5CF6)","linear-gradient(135deg,#3B82F6,#2563EB)","linear-gradient(135deg,#10B981,#059669)","linear-gradient(135deg,#F59E0B,#D97706)","linear-gradient(135deg,#EF4444,#DC2626)","linear-gradient(135deg,#EC4899,#DB2777)","linear-gradient(135deg,#7B8BA8,#64748B)"];const tA={u:Math.round(ICS.reduce((s,c)=>s+c.util,0)/ICS.length),cs:(ICS.reduce((s,c)=>s+c.csat,0)/ICS.length).toFixed(1),tk:ICS.reduce((s,c)=>s+c.tickets,0),kb:ICS.reduce((s,c)=>s+c.kb,0)};
@@ -838,13 +860,14 @@ function ColorInput({ label, value, onChange }) {
 }
 
 // ── Main Customizer ─────────────────────────────────────────
-function WhiteLabelStudio({ onBack }) {
-  const [theme, setTheme] = useState({ ...DEFAULT_THEME.colors });
-  const [orgName, setOrgName] = useState("DeliverIQ");
-  const [tagline, setTagline] = useState("Delivery Intelligence");
-  const [domain, setDomain] = useState("app.deliveriq.io");
-  const [radius, setRadius] = useState(12);
-  const [logoUrl, setLogoUrl] = useState(null);
+function WhiteLabelStudio({ onBack, onApply, initial }) {
+  const init = initial || {};
+  const [theme, setTheme] = useState(init.colors ? { ...init.colors } : { ...DEFAULT_THEME.colors });
+  const [orgName, setOrgName] = useState(init.orgName || "DeliverIQ");
+  const [tagline, setTagline] = useState(init.tagline || "Delivery Intelligence");
+  const [domain, setDomain] = useState(init.domain || "app.deliveriq.io");
+  const [radius, setRadius] = useState(init.radius ?? 12);
+  const [logoUrl, setLogoUrl] = useState(init.logoUrl || null);
   const [activeSection, setActiveSection] = useState("brand");
   const [features, setFeatures] = useState({ ...DEFAULT_THEME.features });
   const [saved, setSaved] = useState(false);
@@ -861,7 +884,8 @@ function WhiteLabelStudio({ onBack }) {
 
   const handleSave = () => {
     setSaved(true);
-    setTimeout(() => setSaved(false), 2500);
+    if (onApply) onApply({ colors: theme, orgName, tagline, logoUrl, radius, domain, features });
+    setTimeout(() => { setSaved(false); if (onBack) onBack(); }, 900);
   };
 
   const handleLogoUpload = (e) => {
@@ -892,7 +916,7 @@ function WhiteLabelStudio({ onBack }) {
             <div style={{ width: 30, height: 30, borderRadius: 8, background: "linear-gradient(135deg,#3B82F6,#8B5CF6)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15, fontWeight: 900, color: "#fff" }}>D</div>
             <div>
               <div style={{ fontSize: 14, fontWeight: 800, color: "#E8ECF4", letterSpacing: -0.3, lineHeight: 1 }}>DeliverIQ</div>
-              <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#3B82F6", marginTop: 1 }}>White-Label Studio</div>
+              <div style={{ fontSize: 7, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: "#3B82F6", marginTop: 1 }}>Customize</div>
             </div>
           </div>
         </div>
@@ -906,7 +930,7 @@ function WhiteLabelStudio({ onBack }) {
             background: saved ? "#10B981" : "linear-gradient(135deg,#3B82F6,#8B5CF6)", color: "#fff",
             boxShadow: saved ? "0 4px 12px rgba(16,185,129,0.3)" : "0 4px 12px rgba(59,130,246,0.3)"
           }}>
-            {saved ? "✓ Theme Saved" : "Save & Publish"}
+            {saved ? "✓ Applied to Dashboard" : "Save & Publish"}
           </button>
         </div>
       </div>
@@ -1129,18 +1153,27 @@ function UploadPage({ onData, onDemo }) {
   const [parsing, setP] = useState(false);
   const [result, setR] = useState(null);
   const [err, setE] = useState(null);
+  const [prog, setProg] = useState(null); // { pct, msg }
   const ref = useRef(null);
 
   const handle = async (f) => {
     if (!f) return;
-    setP(true); setE(null); setR(null);
+    setP(true); setE(null); setR(null); setProg(null);
     try {
-      const r = await parseCSV(f);
+      const isPdf = /\.pdf$/i.test(f.name) || f.type === "application/pdf";
+      let r;
+      if (isPdf) {
+        setProg({ pct: 2, msg: "Loading PDF engine…" });
+        const { parsePDF } = await import("./lib/pdfParser");
+        r = await parsePDF(f, (pct, msg) => setProg({ pct, msg }));
+      } else {
+        r = await parseCSV(f);
+      }
       setR(r);
     } catch (e) {
       setE(e.message || "Could not read this file.");
     }
-    setP(false);
+    setP(false); setProg(null);
   };
 
   const confirm = () => {
@@ -1164,11 +1197,11 @@ function UploadPage({ onData, onDemo }) {
         <div style={{ width: "100%", maxWidth: 520 }}>
           <div onClick={() => ref.current?.click()} onDragOver={e => e.preventDefault()} onDrop={e => { e.preventDefault(); handle(e.dataTransfer.files[0]); }}
             style={{ border: `2px dashed ${C.bh}`, borderRadius: 20, padding: "44px 32px", textAlign: "center", cursor: "pointer", background: C.sf }}>
-            <input ref={ref} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={e => handle(e.target.files[0])} />
+            <input ref={ref} type="file" accept=".csv,.tsv,.txt,.pdf" style={{ display: "none" }} onChange={e => handle(e.target.files[0])} />
             {parsing ? (
-              <div><div style={{ fontSize: 40, marginBottom: 12, animation: "spin 1.5s linear infinite" }}>🔄</div><div style={{ fontSize: 16, fontWeight: 700, color: C.tx }}>Reading your data…</div></div>
+              <div><div style={{ fontSize: 40, marginBottom: 12, animation: "spin 1.5s linear infinite" }}>🔄</div><div style={{ fontSize: 16, fontWeight: 700, color: C.tx, marginBottom: prog ? 10 : 0 }}>{prog?.msg || "Reading your data…"}</div>{prog && (<div style={{ maxWidth: 280, margin: "0 auto" }}><div style={{ height: 5, background: C.bd, borderRadius: 3, overflow: "hidden" }}><div style={{ height: "100%", width: `${prog.pct}%`, background: G, borderRadius: 3, transition: "width .3s ease" }} /></div><div style={{ fontSize: 10, color: C.dm, marginTop: 5 }}>{prog.pct}%</div></div>)}</div>
             ) : (
-              <div><div style={{ fontSize: 46, marginBottom: 14 }}>📄</div><div style={{ fontSize: 18, fontWeight: 700, color: C.tx, marginBottom: 6 }}>Drop your CSV here</div><div style={{ fontSize: 13, color: C.sb }}>or click to browse · CSV, TSV</div></div>
+              <div><div style={{ fontSize: 46, marginBottom: 14 }}>📄</div><div style={{ fontSize: 18, fontWeight: 700, color: C.tx, marginBottom: 6 }}>Drop your CSV or PDF here</div><div style={{ fontSize: 13, color: C.sb }}>or click to browse · CSV, TSV, PDF</div><div style={{ fontSize: 11, color: C.dm, marginTop: 6 }}>Scanned PDFs are read with OCR — first run downloads a language pack</div></div>
             )}
           </div>
 
@@ -1187,7 +1220,7 @@ function UploadPage({ onData, onDemo }) {
         <div style={{ width: "100%", maxWidth: 720 }}>
           <div style={{ background: C.sf, borderRadius: 16, padding: 24, border: `1px solid ${C.bd}` }}>
             <div style={{ fontSize: 18, fontWeight: 700, color: C.tx, marginBottom: 4 }}>Review Column Mapping</div>
-            <div style={{ fontSize: 12, color: C.sb, marginBottom: 16 }}>{result.rowCount} rows · {result.headers.length} columns detected. Adjust any mapping below.</div>
+            <div style={{ fontSize: 12, color: C.sb, marginBottom: 16 }}>{result.rowCount} rows · {result.headers.length} columns detected{result.method === "ocr" ? " via OCR (scanned PDF — please double-check the values)" : result.method === "text" ? " from PDF text" : ""}. Adjust any mapping below.</div>
             <div style={{ maxHeight: 360, overflowY: "auto", border: `1px solid ${C.bd}`, borderRadius: 10 }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
                 <thead><tr style={{ borderBottom: `1px solid ${C.bd}`, position: "sticky", top: 0, background: C.cd }}>{["CSV Column", "→", "Maps To", "Sample", "Conf"].map((h, i) => <th key={i} style={{ padding: "8px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: C.dm }}>{h}</th>)}</tr></thead>
@@ -1218,16 +1251,17 @@ export default function App() {
   const [studio, setStudio] = useState(false);
   const [selP, sP] = useState(null);
 
-  // Load persisted data into module vars on mount / after upload
-  useEffect(() => { if (hasData()) { __setData(loadAll()); setVer(v => v + 1); } }, []);
+  // Load persisted data + saved theme into module vars on mount
+  useEffect(() => { applyTheme(loadTheme()); if (hasData()) { __setData(loadAll()); } setVer(v => v + 1); }, []);
 
   const onData = () => { __setData(loadAll()); setVer(v => v + 1); setMode("dash"); };
   const onDemo = () => { __useDemo(); setVer(v => v + 1); setMode("dash"); };
   const reupload = () => { clearAll(); __useDemo(); setMode("upload"); };
+  const applyAndSave = (t) => { saveTheme(t); applyTheme(t); setVer(v => v + 1); setStudio(false); };
 
   if (mode === "upload") return (<div style={{ background: C.bg, minHeight: "100vh", color: C.tx, fontFamily: "'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif" }}><style>{`*{box-sizing:border-box;margin:0;padding:0}@keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}button,select,input{font-family:inherit;outline:none}`}</style><UploadPage onData={onData} onDemo={onDemo} /></div>);
 
-  if (studio) return (<WhiteLabelStudio onBack={() => setStudio(false)} />);
+  if (studio) return (<WhiteLabelStudio onBack={() => setStudio(false)} onApply={applyAndSave} initial={loadTheme()} />);
 
   const titles = { portfolio: "Portfolio Overview", revenue: "Revenue Intelligence", pms: "PM Performance", ics: "Consultant Performance", mobile: "Connect Mobile App", challenges: "Challenge Manager", mapper: "AI Data Mapper", api: "API Configuration", sync: "Sync Monitor" };
   const curTitle = settings ? titles[stab] : titles[view];
@@ -1238,8 +1272,8 @@ export default function App() {
     <div style={{ position: "sticky", top: 0, zIndex: 50, background: "rgba(8,14,26,.9)", backdropFilter: "blur(16px)", borderBottom: `1px solid ${C.bd}`, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", height: 52 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
-          <svg width="28" height="28" viewBox="0 0 64 64"><defs><linearGradient id="nv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#3B82F6"/><stop offset="1" stopColor="#8B5CF6"/></linearGradient></defs><path d="M32 3 L52.8 15 L52.8 49 L32 61 L11.2 49 L11.2 15 Z" fill="url(#nv)"/><path d="M20 40 L27 31 L34 36 L44 23" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"/><circle cx="44" cy="23" r="3.4" fill="#fff"/></svg>
-          <div><div style={{ fontSize: 13, fontWeight: 800, color: C.tx, lineHeight: 1 }}>Deliver<span style={{ background: G, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>IQ</span></div><div style={{ fontSize: 6, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: C.ac, marginTop: 1 }}>Delivery Intelligence</div></div>
+          {BRAND.logo ? <img src={BRAND.logo} alt="" style={{ width: 28, height: 28, borderRadius: 7, objectFit: "cover" }} /> : <svg width="28" height="28" viewBox="0 0 64 64"><defs><linearGradient id="nv" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor={C.ac}/><stop offset="1" stopColor={C.pp}/></linearGradient></defs><path d="M32 3 L52.8 15 L52.8 49 L32 61 L11.2 49 L11.2 15 Z" fill="url(#nv)"/><path d="M20 40 L27 31 L34 36 L44 23" fill="none" stroke="#fff" strokeWidth="3.4" strokeLinecap="round" strokeLinejoin="round"/><circle cx="44" cy="23" r="3.4" fill="#fff"/></svg>}
+          <div><div style={{ fontSize: 13, fontWeight: 800, color: C.tx, lineHeight: 1 }}>{BRAND.name === "DeliverIQ" ? <>Deliver<span style={{ background: G, WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent" }}>IQ</span></> : BRAND.name}</div><div style={{ fontSize: 6, fontWeight: 700, letterSpacing: 2, textTransform: "uppercase", color: C.ac, marginTop: 1 }}>{BRAND.tagline}</div></div>
         </div>
         <div style={{ display: "flex", gap: 1, background: C.sf, borderRadius: 8, padding: 2 }}>
           {NAV.map(n => <button key={n.id} onClick={() => { sV(n.id); sS(false); }} style={{ padding: "6px 12px", borderRadius: 6, border: "none", cursor: "pointer", fontSize: 11, fontWeight: 600, background: !settings && view === n.id ? C.bd : "transparent", color: !settings && view === n.id ? C.tx : C.dm, display: "flex", alignItems: "center", gap: 4 }}><span style={{ fontSize: 10, opacity: !settings && view === n.id ? 1 : .5 }}>{n.i}</span>{n.l}</button>)}
@@ -1247,8 +1281,8 @@ export default function App() {
         </div>
       </div>
       <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-        <button onClick={() => setStudio(true)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.pp}40`, background: `${C.pp}12`, color: "#C4B5FD", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>🎨 White-Label</button>
-        <button onClick={() => generateReport({ projects: P, pms: PMS, orgName: "DeliverIQ" })} style={{ padding: "5px 14px", borderRadius: 6, border: "none", background: G, color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>📄 Board Report</button>
+        <button onClick={() => setStudio(true)} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.pp}40`, background: `${C.pp}12`, color: "#C4B5FD", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>🎨 Customize</button>
+        <button onClick={() => generateReport({ projects: P, pms: PMS, orgName: BRAND.name, logoUrl: BRAND.logo, theme: { primary: C.ac, secondary: C.pp } })} style={{ padding: "5px 14px", borderRadius: 6, border: "none", background: G, color: "#fff", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>📄 Board Report</button>
         <button onClick={reupload} style={{ padding: "5px 12px", borderRadius: 6, border: `1px solid ${C.bd}`, background: "transparent", color: C.sb, fontSize: 10, fontWeight: 600, cursor: "pointer" }}>↻ Re-upload</button>
       </div>
     </div>
